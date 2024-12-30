@@ -16,6 +16,13 @@ PHASE_EWL_YELLOW = 7
 
 
 class Simulation:
+    '''
+        Set up the simulation with:
+            A neural network model (Model)
+            A memory buffer for storing experiences (Memory)
+            Traffic generator for creating traffic conditions (TrafficGen)
+            simulation parameters like discount factor (gamma), green/yelllow light durations, and state/action space dimensions
+    '''
     def __init__(self, Model, Memory, TrafficGen, sumo_cmd, gamma, max_steps, green_duration, yellow_duration, num_states, num_actions, training_epochs):
         self._Model = Model
         self._Memory = Memory
@@ -34,18 +41,19 @@ class Simulation:
         self._training_epochs = training_epochs
 
 
+    # runs an episode of simulation and triggers training
     def run(self, episode, epsilon):
         """
         Runs an episode of simulation, then starts a training session
         """
         start_time = timeit.default_timer()
 
-        # first, generate the route file for this simulation and set up sumo
+        # first, generate the route file (xml file corresponding to SUMO simulation) for this simulation and set up sumo
         self._TrafficGen.generate_routefile(seed=episode)
         traci.start(self._sumo_cmd)
         print("Simulating...")
 
-        # inits
+        # initializes all the variables required during training
         self._step = 0
         self._waiting_times = {}
         self._sum_neg_reward = 0
@@ -55,6 +63,7 @@ class Simulation:
         old_state = -1
         old_action = -1
 
+        # run the simulation for the maximum number of steps
         while self._step < self._max_steps:
 
             # get current state of the intersection
@@ -62,7 +71,9 @@ class Simulation:
 
             # calculate reward of previous action: (change in cumulative waiting time between actions)
             # waiting time = seconds waited by a car since the spawn in the environment, cumulated for every car in incoming lanes
+            # waiting time of all the cars present in the simulation
             current_total_wait = self._collect_waiting_times()
+            # computes reward based on the difference in total waiting time between the current and previous state
             reward = old_total_wait - current_total_wait
 
             # saving the data into the memory
@@ -124,8 +135,11 @@ class Simulation:
         """
         Retrieve the waiting time of every car in the incoming roads
         """
+        # defines all the incoming roads where cars can come from
         incoming_roads = ["E2TL", "N2TL", "W2TL", "S2TL"]
+        # gets list of all the cars in the simulation
         car_list = traci.vehicle.getIDList()
+        # for each car in the simulation
         for car_id in car_list:
             wait_time = traci.vehicle.getAccumulatedWaitingTime(car_id)
             road_id = traci.vehicle.getRoadID(car_id)  # get the road id where the car is located
@@ -135,6 +149,7 @@ class Simulation:
                 if car_id in self._waiting_times: # a car that was tracked has cleared the intersection
                     del self._waiting_times[car_id] 
         total_waiting_time = sum(self._waiting_times.values())
+        # returns the waiting time of all the cars present in the simulation
         return total_waiting_time
 
 
@@ -182,19 +197,28 @@ class Simulation:
         return queue_length
 
 
+    # retrieves the state of the intersection from sumo in the form of cell occupancy
+    # output is a numpy array that encodes whether each cell is occupied or not
     def _get_state(self):
         """
         Retrieve the state of the intersection from sumo, in the form of cell occupancy
         """
-        state = np.zeros(self._num_states)
+        # creates state array the size of the total size of the state array
+        # each index in array corresponds to a cell in the intersection
+        state = np.zeros(self._num_states) # each element of this array is binary, 1 if the cell is occupied, 0 otherwise
+        # gets the list of all cars in the simulation
         car_list = traci.vehicle.getIDList()
 
         for car_id in car_list:
+            # gets the position of the car
             lane_pos = traci.vehicle.getLanePosition(car_id)
+            # gets the lane of the car
             lane_id = traci.vehicle.getLaneID(car_id)
+            # max length of a lane is 750 meters
             lane_pos = 750 - lane_pos  # inversion of lane pos, so if the car is close to the traffic light -> lane_pos = 0 --- 750 = max len of a road
 
             # distance in meters from the traffic light -> mapping into cells
+            # each lane is divided into 10 zones, each mappend to "cell" based on distance from traffic light
             if lane_pos < 7:
                 lane_cell = 0
             elif lane_pos < 14:
@@ -218,6 +242,7 @@ class Simulation:
 
             # finding the lane where the car is located 
             # x2TL_3 are the "turn left only" lanes
+            # W2TL: West-to-TrafficLight, N2TL: North-to-TrafficLight, E2TL: East-to-TrafficLight, S2TL: South-to-TrafficLight
             if lane_id == "W2TL_0" or lane_id == "W2TL_1" or lane_id == "W2TL_2":
                 lane_group = 0
             elif lane_id == "W2TL_3":
@@ -246,9 +271,11 @@ class Simulation:
             else:
                 valid_car = False  # flag for not detecting cars crossing the intersection or driving away from it
 
+            # if the car is valid (i.e, not crossing the intersection or driving away from it), write the position of the car in the state array
             if valid_car:
                 state[car_position] = 1  # write the position of the car car_id in the state array in the form of "cell occupied"
 
+        # return numpy array containing binary representation of cell occupancy
         return state
 
 
