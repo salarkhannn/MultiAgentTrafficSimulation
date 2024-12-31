@@ -2,6 +2,7 @@ import numpy as np
 import math
 
 class TrafficGenerator:
+    # initializes the class with the maximum number of steps and the number of cars generated per episode
     def __init__(self, max_steps, n_cars_generated):
         self._n_cars_generated = n_cars_generated  # how many cars per episode
         self._max_steps = max_steps
@@ -13,7 +14,9 @@ class TrafficGenerator:
         np.random.seed(seed)  # make tests reproducible
 
         # the generation of cars is distributed according to a weibull distribution
+        # weibull: cars are more frequent in the beginning and bcome less frequent towards the end
         timings = np.random.weibull(2, self._n_cars_generated)
+        # stores the generated times of car arrivals, sorted in ascendin order
         timings = np.sort(timings)
 
         # reshape the distribution to fit the interval 0:max_steps
@@ -25,13 +28,15 @@ class TrafficGenerator:
         for value in timings:
             car_gen_steps = np.append(car_gen_steps, ((max_new - min_new) / (max_old - min_old)) * (value - max_old) + max_new)
 
+        #each value represents the exact step of the simulation when a car will be generated
         car_gen_steps = np.rint(car_gen_steps)  # round every value to int -> effective steps when a car will be generated
 
         # produce the file for cars generation, one car per line
         with open("intersection/episode_routes.rou.xml", "w") as routes:
+            # <vType> defines vehicle properties
             print("""<routes>
             <vType accel="1.0" decel="4.5" id="standard_car" length="5.0" minGap="2.5" maxSpeed="25" sigma="0.5" />
-
+            
             <route id="W_N" edges="W2TL TL2N"/>
             <route id="W_E" edges="W2TL TL2E"/>
             <route id="W_S" edges="W2TL TL2S"/>
@@ -46,6 +51,7 @@ class TrafficGenerator:
             <route id="S_E" edges="S2TL TL2E"/>""", file=routes)
 
             for car_counter, step in enumerate(car_gen_steps):
+                # randomly choose whether a car will go straight (<0.75) or turns (>=0.75)
                 straight_or_turn = np.random.uniform()
                 if straight_or_turn < 0.75:  # choose direction: straight or turn - 75% of times the car goes straight
                     route_straight = np.random.randint(1, 5)  # choose a random source & destination
